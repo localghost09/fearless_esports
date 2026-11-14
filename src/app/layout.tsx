@@ -1,25 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Manrope, Sora } from "next/font/google";
+import "@fontsource-variable/manrope";
+import "@fontsource-variable/sora";
 import "./globals.css";
 import { AppProvider } from "@/components/providers/app-provider";
 import { ToastProvider } from "@/components/ui/toast";
 import { SiteFooter, SiteHeader } from "@/components/shell/site-chrome";
 import { BottomNav } from "@/components/shell/bottom-nav";
 import { BRAND } from "@/lib/config";
-
-const display = Sora({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
-  variable: "--font-sora",
-  display: "swap",
-});
-
-const sans = Manrope({
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700", "800"],
-  variable: "--font-manrope",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   metadataBase: new URL(BRAND.siteUrl),
@@ -72,7 +59,6 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en-IN"
       data-scroll-behavior="smooth"
-      className={`${display.variable} ${sans.variable}`}
     >
       <body className="min-h-dvh bg-ink font-sans text-mist antialiased">
         <AppProvider>

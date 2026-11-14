@@ -16,9 +16,15 @@ const FILTERS = [
 
 type FilterId = (typeof FILTERS)[number]["id"];
 
-export function ScrimBrowser({ scrims }: { scrims: Scrim[] }) {
+export function ScrimBrowser({
+  scrims,
+  initialQuery = "",
+}: {
+  scrims: Scrim[];
+  initialQuery?: string;
+}) {
   const [filter, setFilter] = useState<FilterId>("all");
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
 
   const counts = useMemo(
     () => ({
