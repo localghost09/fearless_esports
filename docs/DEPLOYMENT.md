@@ -60,11 +60,50 @@ Dashboard → Authentication:
   work immediately on the free tier's shared SMTP. Turn it back on
   (Authentication → Providers → Email → *Confirm email*) once you attach your
   own SMTP/Resend credentials.
-- Google sign-in is **not** configured. The button calls
-  `signInWithOAuth({ provider: "google" })`; enable the Google provider in
-  Supabase and paste your Google client ID/secret there (never in the repo).
+- Google sign-in is **not** configured yet. The login page asks
+  `GET /auth/v1/settings` which providers are live and hides the Google button
+  while it is off (it also translates GoTrue's raw
+  `Unsupported provider: provider is not enabled` into a readable message), so
+  the deployment degrades cleanly instead of showing a 400.
 
-### 1.3 Keys
+### 1.3 Google sign-in (optional)
+
+Enabling it is a Dashboard-only change — no secret ever goes in this repo or in
+Vercel.
+
+1. **Google Cloud Console** → *APIs & Services* → *Credentials* →
+   **Create credentials → OAuth client ID** → *Web application*.
+   - Authorised JavaScript origin: `https://fearless-esports-plum.vercel.app`
+   - Authorised redirect URI (**Supabase's** callback, not your domain):
+     `https://ocucxbahmyirjdyadnjg.supabase.co/auth/v1/callback`
+2. Copy the **Client ID** and **Client secret**.
+3. **Supabase** → *Authentication → Sign In / Providers → Google* → paste both,
+   toggle **Enable**, save.
+4. Confirm *Authentication → URL Configuration* still lists
+   `https://fearless-esports-plum.vercel.app/**` (it does — see §1.2).
+5. Reload `/login`: the "Continue with Google" button appears on its own, and
+   `/auth/callback` exchanges the PKCE code for a session.
+
+Scopes needed: `openid`, `email`, `profile` only.
+
+### 1.4 Resetting a password
+
+There is no in-app password form yet. Two supported paths today:
+
+```sql
+-- set a new password directly (bcrypt, same hash GoTrue uses)
+update auth.users
+set encrypted_password = extensions.crypt('<new-password>', extensions.gen_salt('bf')),
+    updated_at = now()
+where email = '<user@example.com>';
+```
+
+…or Supabase → *Authentication → Users* → *Send recovery email*. The recovery
+link lands on `/auth/callback` (PKCE) and signs the user in, after which an
+in-app "change password" form could call
+`supabase.auth.updateUser({ password })`.
+
+### 1.5 Keys
 
 Project Settings → API:
 
@@ -77,7 +116,7 @@ Project Settings → API:
 The browser never sees the service key; only `/api/*` routes read it
 (`src/lib/supabase/admin.ts`).
 
-### 1.4 Make yourself an admin
+### 1.6 Make yourself an admin
 
 Sign up on the site, then:
 
