@@ -4,6 +4,8 @@
 
 Mobile-first, serverless, and free-tier friendly: Next.js on Vercel, Postgres/Auth on Supabase, and the open-source [YouPI PG](https://github.com/youpi-pg/YouPI-PG) gateway for UPI.
 
+**Live:** <https://fearless-esports-plum.vercel.app> — the production deployment of this repo. The full ops runbook (project IDs, env vars, payment wiring) is in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
 ---
 
 ## What's inside
@@ -148,7 +150,7 @@ NEXT_PUBLIC_UPI_VPA=yourbrand@upi
 NEXT_PUBLIC_UPI_PAYEE_NAME=Your Brand
 ```
 
-The checkout shows a UPI QR/deep link. After paying, the player submits the UTR. The booking moves to **awaiting verification**; an admin confirms or rejects it in **/admin → Payments**. A unique index on `payments.utr` stops the same reference being claimed twice.
+The checkout shows a UPI QR/deep link. The QR is generated server-side by `/api/qr` from the `upi://pay?pa=…&am=…&tr=<order_id>` intent, so the scanned transaction carries the order reference needed for reconciliation. After paying, the player submits the UTR. The booking moves to **awaiting verification**; an admin confirms or rejects it in **/admin → Payments**. A unique index on `payments.utr` stops the same reference being claimed twice.
 
 This mode is manual by design — reconcile the UTR against your bank/UPI statement before confirming.
 
@@ -180,6 +182,8 @@ Set `CRON_SECRET` in Vercel so the route requires `Authorization: Bearer <CRON_S
 ---
 
 ## Deploy to Vercel
+
+Short version — the step-by-step runbook with the actual project IDs lives in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
 1. Push the repo to GitHub.
 2. Import it in Vercel (framework auto-detected: Next.js).

@@ -197,18 +197,6 @@ create table if not exists public.scrim_rooms (
 
 alter table public.scrim_rooms enable row level security;
 
-drop policy if exists "rooms_for_confirmed_players" on public.scrim_rooms;
-create policy "rooms_for_confirmed_players" on public.scrim_rooms
-  for select using (
-    public.is_admin()
-    or exists (
-      select 1 from public.registrations r
-      where r.scrim_id = scrim_rooms.scrim_id
-        and r.owner_id = auth.uid()
-        and r.status = 'confirmed'
-    )
-  );
-
 -- ---------------------------------------------------------------------------
 -- 4. Registrations + payments
 -- ---------------------------------------------------------------------------
@@ -272,6 +260,18 @@ alter table public.payments enable row level security;
 drop policy if exists "registrations_select_own" on public.registrations;
 create policy "registrations_select_own" on public.registrations
   for select using (auth.uid() = owner_id or public.is_admin());
+
+drop policy if exists "rooms_for_confirmed_players" on public.scrim_rooms;
+create policy "rooms_for_confirmed_players" on public.scrim_rooms
+  for select using (
+    public.is_admin()
+    or exists (
+      select 1 from public.registrations r
+      where r.scrim_id = scrim_rooms.scrim_id
+        and r.owner_id = auth.uid()
+        and r.status = 'confirmed'
+    )
+  );
 
 -- No insert/update/delete policies: all writes go through the RPCs below or
 -- the service-role admin API. This prevents players from marking themselves
