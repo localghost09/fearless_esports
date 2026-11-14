@@ -49,6 +49,18 @@ const seedState: LocalState = {
   resultOverrides: {},
 };
 
+/**
+ * Live deployments start signed out. Seeding the demo captain here would show
+ * every visitor as "Aarav · admin" — and unlock the admin-only chrome — before
+ * Supabase has even reported a session.
+ */
+const signedOutState: LocalState = {
+  profile: null,
+  teams: [],
+  registrations: [],
+  resultOverrides: {},
+};
+
 function readState(): LocalState {
   if (typeof window === "undefined") return seedState;
   try {
@@ -58,8 +70,9 @@ function readState(): LocalState {
     if (!raw) return seedState;
     const parsed = JSON.parse(raw) as Partial<LocalState>;
     return {
-      profile: parsed.profile ?? DEMO_PROFILE,
-      teams: parsed.teams?.length ? parsed.teams : [DEMO_TEAM],
+      // An explicit `null` means the visitor signed out of the demo; keep it.
+      profile: "profile" in parsed ? (parsed.profile ?? null) : DEMO_PROFILE,
+      teams: parsed.teams?.length ? parsed.teams : parsed.profile ? [DEMO_TEAM] : [],
       registrations: parsed.registrations ?? [],
       resultOverrides: parsed.resultOverrides ?? {},
     };
@@ -157,15 +170,19 @@ function firstRelation<T>(value: T | T[] | null | undefined): T | null {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const live = isSupabaseConfigured();
-  const [state, setState] = useState<LocalState>(seedState);
+  const [state, setState] = useState<LocalState>(() => (live ? signedOutState : seedState));
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const hydrated = useRef(false);
 
-  const commit = useCallback((next: LocalState) => {
-    setState(next);
-    writeState(next);
-  }, []);
+  const commit = useCallback(
+    (next: LocalState) => {
+      setState(next);
+      // localStorage only backs demo mode; live state is Supabase's job.
+      if (!live) writeState(next);
+    },
+    [live],
+  );
 
   const loadRemote = useCallback(async (activeUser: User) => {
     const supabase = getSupabaseBrowser();
@@ -282,7 +299,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
       const activeUser = data.session?.user ?? null;
       setUser(activeUser);
-      if (activeUser) await loadRemote(activeUser);
+      if (activeUser) {
+        await loadRemote(activeUser);
+      } else {
+        setState(signedOutState);
+      }
       if (!cancelled) setReady(true);
     });
 
