@@ -162,11 +162,29 @@ change needs a new deployment**, not just a save.
 
 ### 2.3 Cron
 
-`vercel.json` schedules `GET /api/cron/release-holds` at `0 0 * * *`. Hobby
-plans allow one run per day; the route also refuses to run without the secret in
-production. For tighter hold expiry, call the same endpoint from
-Supabase `pg_cron` + `pg_net`, or shorten the window inside
-`release_stale_holds()`.
+`vercel.json` schedules two jobs:
+
+| Path | Schedule | Purpose |
+| --- | --- | --- |
+| `GET /api/cron/release-holds` | `0 0 * * *` | Release slots held by unpaid registrations |
+| `GET /api/cron/reconcile-payments` | `30 0 * * *` | Re-ask YouPI about orders still open and settle them (missed-webhook safety net) |
+
+On Hobby, cron jobs may only run **once per day**, so these run at midnight and
+00:30 IST respectively. If you want the payment sweep every few minutes, keep
+the Vercel job as the daily backstop and additionally call it from
+Supabase `pg_cron` + `pg_net`, or from any free scheduler:
+
+```sql
+select cron.schedule('reconcile-payments', '*/5 * * * *', $$
+  select net.http_post(
+    url := 'https://fearless-esports-plum.vercel.app/api/cron/reconcile-payments',
+    headers := jsonb_build_object('Authorization', 'Bearer <CRON_SECRET>')
+  );
+$$);
+```
+
+Both routes refuse to run without `Authorization: Bearer $CRON_SECRET` in
+production, and both also accept `POST` plus an `x-cron-secret` header.
 
 ### 2.4 Custom domain
 
@@ -274,6 +292,54 @@ Fly, a spare box) and point the app at it.
 Keep `YOUPI_REQUIRE_RECONCILED=true` for money: UPI success observed by the
 gateway is not proof the money settled. With `false`, slots confirm on observed
 success, which is faster at check-in but shifts chargeback risk onto you.
+
+### 3.1.1 Hands-off checklist (no admin approval at all)
+
+Direct-UPI mode always needs a human: a player pays a VPA, types a UTR and an
+admin confirms it against the bank statement. YouPI removes that by proving the
+credit itself and pushing a signed webhook. To end up with **zero manual
+steps**, all of the following have to be true:
+
+1. **Gateway running on a public HTTPS URL** (e.g. `https://pay.fearlessesports.gg`)
+   with a merchant ID, an API key and a webhook secret created for this site.
+2. **Bank observer online** — YouPI confirms UPI credits from the merchant
+   account's bank SMS / alert emails (Android observer APK or Gmail ingestion).
+   The phone or mailbox must stay reachable and the account must be the one
+   behind your VPA; if the observer goes dark, nothing can auto-confirm.
+3. **Webhook registered** at
+   `https://fearless-esports-plum.vercel.app/api/payments/webhook` for
+   `SUCCESS`, `RECONCILED`, `MANUAL_REVIEW`, `FAILED`, `EXPIRED`, `CANCELLED`,
+   signing with `X-Gateway-Signature: sha256=<hex HMAC-SHA256(secret, rawBody)>`.
+4. **Env vars in Vercel** (all environments, then redeploy — `NEXT_PUBLIC_*` is
+   baked into the bundle):
+
+   ```
+   NEXT_PUBLIC_YOUPI_BASE_URL=https://pay.fearlessesports.gg
+   NEXT_PUBLIC_YOUPI_MERCHANT_ID=fe_live_001
+   YOUPI_API_KEY=...
+   YOUPI_WEBHOOK_SECRET=...
+   YOUPI_REQUIRE_RECONCILED=false   # true only if you want bank-statement proof
+   ```
+
+   Leave `NEXT_PUBLIC_UPI_VPA` **empty**, otherwise the direct-UPI path stays
+   selected and every payment still needs an admin click.
+5. **Sweep scheduled** — `/api/cron/reconcile-payments` (see §2.3). Webhooks get
+   lost; the sweep re-queries the gateway for open orders and settles them
+   without anyone opening `/admin`.
+6. **Smoke-test it** with a ₹1 lobby: sign in, register, pay from a UPI app,
+   then wait for the confirmation screen *without* touching `/admin`. Check
+   `/admin → Payments` — nothing should be sitting in **Awaiting**.
+
+What can still land in `awaiting_verification`, by design:
+
+- the paid amount differs from the entry fee by one paisa or more,
+- the gateway flags `MANUAL_REVIEW`,
+- `YOUPI_REQUIRE_RECONCILED=true` and the credit has not appeared on the bank
+  statement yet (it settles itself once `RECONCILED` arrives, and the sweep
+  picks it up in the meantime).
+
+Refunds and disputes stay manual — `admin → Payments → Reject` is the only path
+that releases a slot after money moved.
 
 ### 3.2 Direct UPI (manual, zero fees)
 

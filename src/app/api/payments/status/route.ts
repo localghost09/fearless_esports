@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { ApiError, apiError, getSupabaseAdmin, requireUser } from "@/lib/supabase/admin";
-import { YOUPI_REQUIRE_RECONCILED } from "@/lib/config";
 import { getYoupiPayment } from "@/lib/payments/youpi";
+import { interpretYoupiStatus, toClientState } from "@/lib/payments/reconcile";
 import { settlePayment } from "@/lib/payments/settle";
 
 export const runtime = "nodejs";
@@ -65,49 +65,18 @@ export async function GET(request: NextRequest) {
     }
 
     const details = await getYoupiPayment(payment.provider_payment_id);
-    const status = String(details.status ?? "").toUpperCase();
-    const paidAmount = Number(details.amount ?? 0);
-    const amountMatches = Math.abs(paidAmount - Number(payment.amount)) < 0.01;
+    const verdict = interpretYoupiStatus(details, Number(payment.amount));
+    if (!verdict) return Response.json({ state: "pending" });
 
-    const settle = async (
-      state: "paid" | "awaiting_verification" | "failed",
-      event: string,
-    ) => {
-      await settlePayment(admin, {
-        orderId,
-        state,
-        event,
-        providerPaymentId: payment.provider_payment_id,
-        raw: details,
-      });
-      return state === "paid" ? "paid" : state === "failed" ? "failed" : "awaiting";
-    };
+    await settlePayment(admin, {
+      orderId,
+      state: verdict.state,
+      event: verdict.event,
+      providerPaymentId: payment.provider_payment_id,
+      raw: details,
+    });
 
-    if (["RECONCILED", "RECONCILED_SUCCESS"].includes(status)) {
-      return Response.json({ state: await settle("paid", status) });
-    }
-
-    if (["SUCCESS", "OBSERVED_SUCCESS", "COMPLETED"].includes(status)) {
-      if (!amountMatches) {
-        return Response.json({ state: await settle("awaiting_verification", "AMOUNT_MISMATCH") });
-      }
-      if (YOUPI_REQUIRE_RECONCILED) {
-        return Response.json({
-          state: await settle("awaiting_verification", "SUCCESS_AWAITING_RECONCILIATION"),
-        });
-      }
-      return Response.json({ state: await settle("paid", status) });
-    }
-
-    if (status === "MANUAL_REVIEW") {
-      return Response.json({ state: await settle("awaiting_verification", status) });
-    }
-
-    if (["FAILED", "EXPIRED", "CANCELLED"].includes(status)) {
-      return Response.json({ state: await settle("failed", status) });
-    }
-
-    return Response.json({ state: "pending" });
+    return Response.json({ state: toClientState(verdict.state) });
   } catch (cause) {
     return apiError(cause);
   }
