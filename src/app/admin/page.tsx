@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
-import { LayoutDashboard } from "lucide-react";
 import { AdminConsole } from "@/components/admin/admin-console";
-import { Badge } from "@/components/ui";
 import { getScrims } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
@@ -20,10 +18,7 @@ export default async function AdminPage() {
       <section className="relative overflow-hidden border-b border-white/[0.06]">
         <div className="absolute inset-0 bg-grid opacity-[0.12]" />
         <div className="relative mx-auto max-w-6xl px-4 pb-6 pt-7 sm:px-6">
-          <Badge tone="violet">
-            <LayoutDashboard className="size-3" /> OPS DESK
-          </Badge>
-          <h1 className="display mt-3 text-[clamp(2.4rem,11vw,3.6rem)] leading-[0.9] tracking-[-0.045em] text-mist">
+          <h1 className="display text-[clamp(2.4rem,11vw,3.6rem)] leading-[0.9] tracking-[-0.045em] text-mist">
             Control room<span className="text-violet">.</span>
           </h1>
           <p className="mt-2 max-w-xl text-[11px] leading-relaxed text-muted">
