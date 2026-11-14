@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { revalidatePath } from "next/cache";
 import { ApiError, apiError, requireAdmin } from "@/lib/supabase/admin";
 import { placementPoints } from "@/lib/utils";
+import { defaultPrizes, parseScrimInput, slugify, uniqueSlug } from "@/lib/scrim-draft";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,7 +70,7 @@ export async function GET(request: NextRequest) {
       admin
         .from("scrims")
         .select(
-          "id, slug, title, status, start_at, end_at, total_slots, entry_fee, prize_pool, featured, matches_count, scrim_rooms(room_id, room_pass)",
+          "id, slug, title, subtitle, description, tier, banner, mode, map, status, start_at, end_at, registration_closes_at, total_slots, entry_fee, prize_pool, per_kill, featured, matches_count, scrim_rooms(room_id, room_pass)",
         )
         .order("start_at", { ascending: false }),
       admin
@@ -93,12 +94,20 @@ export async function GET(request: NextRequest) {
       id: string;
       slug: string;
       title: string;
+      subtitle: string | null;
+      description: string | null;
+      tier: string;
+      banner: string;
+      mode: string;
+      map: string;
       status: string;
       start_at: string;
       end_at: string;
+      registration_closes_at: string;
       total_slots: number;
       entry_fee: number;
       prize_pool: number;
+      per_kill: number | null;
       featured: boolean;
       matches_count: number;
       scrim_rooms:
@@ -111,12 +120,20 @@ export async function GET(request: NextRequest) {
         id: row.id,
         slug: row.slug,
         title: row.title,
+        subtitle: row.subtitle,
+        description: row.description,
+        tier: row.tier,
+        banner: row.banner,
+        mode: row.mode,
+        map: row.map,
         status: row.status,
         startAt: row.start_at,
         endAt: row.end_at,
+        registrationClosesAt: row.registration_closes_at,
         totalSlots: row.total_slots,
         entryFee: row.entry_fee,
         prizePool: row.prize_pool,
+        perKill: row.per_kill ?? 0,
         featured: row.featured,
         matchesCount: row.matches_count,
         roomId: room?.room_id ?? null,
@@ -282,6 +299,105 @@ export async function POST(request: NextRequest) {
 
         revalidateScrim(await currentSlug(registration.scrim_id, admin));
         return Response.json({ ok: true });
+      }
+
+      case "scrim.create": {
+        const parsed = parseScrimInput(body);
+        if (!parsed.ok) throw new ApiError(400, "INVALID_SCRIM", parsed.error);
+        const input = parsed.input;
+
+        const base = slugify(input.title);
+        const { data: existing, error: slugError } = await admin
+          .from("scrims")
+          .select("slug")
+          .like("slug", `${base}%`);
+        if (slugError) throw slugError;
+        const slug = uniqueSlug(
+          base,
+          (existing ?? []).map((row) => String(row.slug)),
+        );
+
+        const { data: created, error: createError } = await admin
+          .from("scrims")
+          .insert({
+            slug,
+            title: input.title,
+            subtitle: input.subtitle,
+            description: input.description,
+            game: "BGMI",
+            mode: input.mode,
+            map: input.map,
+            tier: input.tier,
+            banner: input.banner,
+            start_at: input.startAt,
+            end_at: input.endAt,
+            registration_closes_at: input.registrationClosesAt,
+            entry_fee: input.entryFee,
+            prize_pool: input.prizePool,
+            per_kill: input.perKill,
+            total_slots: input.totalSlots,
+            status: input.status,
+            featured: input.featured,
+            matches_count: input.matchesCount,
+            prizes: defaultPrizes(input.prizePool),
+          })
+          .select("id, slug")
+          .single();
+        if (createError) throw createError;
+
+        revalidateScrim(String(created.slug));
+        return Response.json({ ok: true, scrimId: created.id, slug: created.slug });
+      }
+
+      case "scrim.save": {
+        const scrimId = String(body.scrimId ?? "");
+        if (!scrimId) throw new ApiError(400, "BAD_REQUEST", "scrimId is required.");
+
+        const parsed = parseScrimInput(body);
+        if (!parsed.ok) throw new ApiError(400, "INVALID_SCRIM", parsed.error);
+        const input = parsed.input;
+
+        const { count: booked, error: countError } = await admin
+          .from("registrations")
+          .select("id", { count: "exact", head: true })
+          .eq("scrim_id", scrimId)
+          .in("status", ["pending_payment", "awaiting_verification", "confirmed"]);
+        if (countError) throw countError;
+
+        if (input.totalSlots < (booked ?? 0)) {
+          throw new ApiError(
+            409,
+            "SLOTS_TOO_SMALL",
+            `${booked} squads already hold a slot — set at least ${booked} slots or cancel them first.`,
+          );
+        }
+
+        const { error: saveError } = await admin
+          .from("scrims")
+          .update({
+            title: input.title,
+            subtitle: input.subtitle,
+            description: input.description,
+            mode: input.mode,
+            map: input.map,
+            tier: input.tier,
+            banner: input.banner,
+            start_at: input.startAt,
+            end_at: input.endAt,
+            registration_closes_at: input.registrationClosesAt,
+            entry_fee: input.entryFee,
+            prize_pool: input.prizePool,
+            per_kill: input.perKill,
+            total_slots: input.totalSlots,
+            status: input.status,
+            featured: input.featured,
+            matches_count: input.matchesCount,
+          })
+          .eq("id", scrimId);
+        if (saveError) throw saveError;
+
+        revalidateScrim(await currentSlug(scrimId, admin));
+        return Response.json({ ok: true, scrimId });
       }
 
       case "scrim.update": {

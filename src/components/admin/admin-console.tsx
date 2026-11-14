@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ArrowUpRight,
@@ -11,6 +12,8 @@ import {
   LayoutDashboard,
   Loader2,
   Lock,
+  Pencil,
+  Plus,
   Radio,
   RefreshCw,
   Save,
@@ -28,6 +31,13 @@ import { useApp } from "@/components/providers/app-provider";
 import { useToast } from "@/components/ui/toast";
 import { getSupabaseBrowser } from "@/lib/supabase/client";
 import { DEMO_MATCHES } from "@/lib/demo/data";
+import {
+  LobbyEditor,
+  draftFromScrim,
+  draftPayload,
+  emptyDraft,
+  type LobbyDraft,
+} from "@/components/admin/lobby-editor";
 import type { MatchTeamResult, Registration, Scrim, ScrimStatus } from "@/lib/types";
 import { cn, formatFull, formatINR, placementPoints } from "@/lib/utils";
 
@@ -37,12 +47,20 @@ interface AdminScrim {
   id: string;
   slug: string;
   title: string;
+  subtitle: string | null;
+  description: string | null;
+  tier: string;
+  banner: string;
+  mode: string;
+  map: string;
   status: ScrimStatus;
   startAt: string;
-  endAt?: string;
+  endAt: string;
+  registrationClosesAt: string;
   totalSlots: number;
   entryFee: number;
   prizePool: number;
+  perKill: number;
   featured: boolean;
   matchesCount: number;
   roomId: string | null;
@@ -110,12 +128,20 @@ function buildDemoSnapshot(
     id: scrim.id,
     slug: scrim.slug,
     title: scrim.title,
+    subtitle: scrim.subtitle,
+    description: scrim.description,
+    tier: scrim.tier,
+    banner: scrim.banner,
+    mode: scrim.mode,
+    map: scrim.map,
     status: scrim.status,
     startAt: scrim.startAt,
     endAt: scrim.endAt,
+    registrationClosesAt: scrim.registrationClosesAt,
     totalSlots: scrim.totalSlots,
     entryFee: scrim.entryFee,
     prizePool: scrim.prizePool,
+    perKill: scrim.perKill ?? 0,
     featured: scrim.featured,
     matchesCount: scrim.matchesCount,
     roomId: scrim.roomId,
@@ -233,6 +259,7 @@ export function AdminConsole({ scrims }: { scrims: Scrim[] }) {
     refresh,
   } = useApp();
   const { toast } = useToast();
+  const router = useRouter();
   const [view, setView] = useState<View>("overview");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(false);
@@ -251,6 +278,10 @@ export function AdminConsole({ scrims }: { scrims: Scrim[] }) {
   const [resultMatchNo, setResultMatchNo] = useState(1);
   const [resultMap, setResultMap] = useState("ERANGEL");
   const [resultRows, setResultRows] = useState<ResultRow[]>([]);
+  const [editor, setEditor] = useState<{ kind: "create" | "edit"; draft: LobbyDraft } | null>(
+    null,
+  );
+  const [editorError, setEditorError] = useState<string | null>(null);
 
   const demoSnapshot = useMemo(
     () => buildDemoSnapshot(scrims, registrations, resultOverrides),
@@ -432,8 +463,13 @@ export function AdminConsole({ scrims }: { scrims: Scrim[] }) {
       },
       body: JSON.stringify({ action, ...payload }),
     });
-    const body = (await response.json().catch(() => ({}))) as { error?: string };
-    if (!response.ok) throw new Error(body.error ?? "The desk rejected that request.");
+    const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!response.ok) {
+      throw new Error(
+        typeof body.error === "string" ? body.error : "The desk rejected that request.",
+      );
+    }
+    return body;
   }
 
   async function settle(registration: AdminRegistration, action: "payment.confirm" | "payment.reject") {
@@ -498,6 +534,70 @@ export function AdminConsole({ scrims }: { scrims: Scrim[] }) {
         description: cause instanceof Error ? cause.message : "Try again.",
         tone: "error",
       });
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  function openLobbyCreator() {
+    if (mode === "demo") {
+      toast({
+        title: "Demo console",
+        description: "Creating lobbies activates when Supabase is connected.",
+        tone: "info",
+      });
+      return;
+    }
+    setEditorError(null);
+    setEditor({ kind: "create", draft: emptyDraft() });
+  }
+
+  function openLobbyEditor(scrim: AdminScrim) {
+    if (mode === "demo") {
+      toast({
+        title: "Demo console",
+        description: "Editing lobby details activates when Supabase is connected.",
+        tone: "info",
+      });
+      return;
+    }
+    setEditorError(null);
+    setEditor({ kind: "edit", draft: draftFromScrim(scrim) });
+  }
+
+  async function saveLobbyEditor() {
+    if (!editor) return;
+    setBusy("editor");
+    setEditorError(null);
+    const payload = draftPayload(editor.draft);
+    try {
+      if (editor.kind === "create") {
+        const created = await post("scrim.create", payload);
+        await load();
+        router.refresh();
+        if (typeof created.scrimId === "string") setSelectedLobby(created.scrimId);
+        setEditor(null);
+        toast({
+          title: "Lobby created",
+          description: `${editor.draft.title.trim()} is live on the scrims board.`,
+        });
+      } else {
+        const scrimId = selectedLobbyData?.id;
+        if (!scrimId) throw new Error("Pick a lobby first.");
+        await post("scrim.save", { ...payload, scrimId });
+        await load();
+        router.refresh();
+        setSelectedLobby(scrimId);
+        setEditor(null);
+        toast({
+          title: "Lobby updated",
+          description: `${editor.draft.title.trim()} · ${editor.draft.status}`,
+        });
+      }
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : "Try again.";
+      setEditorError(message);
+      toast({ title: "Could not save lobby", description: message, tone: "error" });
     } finally {
       setBusy(null);
     }
@@ -913,7 +1013,20 @@ export function AdminConsole({ scrims }: { scrims: Scrim[] }) {
 
       {view === "lobbies" ? (
         <div className="grid gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={openLobbyCreator}
+              className={cn(buttonClass("primary", "md"), "w-full")}
+            >
+              <Plus className="size-4" strokeWidth={2.6} />
+              New event
+            </button>
+            {adminScrims.length ? null : (
+              <p className="rounded-lg border border-white/[0.07] bg-white/[0.02] px-3 py-2 text-[9px] leading-relaxed text-muted">
+                No lobbies yet — create the first one.
+              </p>
+            )}
             {adminScrims.map((scrim) => (
               <button
                 key={scrim.id}
@@ -951,12 +1064,26 @@ export function AdminConsole({ scrims }: { scrims: Scrim[] }) {
                       {formatFull(selectedLobbyData.startAt)} · {selectedLobbyData.totalSlots} slots
                     </p>
                   </div>
-                  <Link
-                    href={`/scrims/${selectedLobbyData.slug}`}
-                    className={cn(buttonClass("ghost", "sm"))}
-                  >
-                    View page <ArrowUpRight className="size-3" />
-                  </Link>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openLobbyEditor(selectedLobbyData)}
+                      disabled={mode === "demo"}
+                      title={mode === "demo" ? "Connect Supabase to edit lobbies" : undefined}
+                      className={cn(
+                        buttonClass("secondary", "sm"),
+                        mode === "demo" && "opacity-50",
+                      )}
+                    >
+                      <Pencil className="size-3" /> Edit details
+                    </button>
+                    <Link
+                      href={`/scrims/${selectedLobbyData.slug}`}
+                      className={cn(buttonClass("ghost", "sm"))}
+                    >
+                      View page <ArrowUpRight className="size-3" />
+                    </Link>
+                  </div>
                 </div>
 
                 <div className="grid gap-4 p-4 sm:grid-cols-2 sm:p-5">
@@ -1239,6 +1366,24 @@ export function AdminConsole({ scrims }: { scrims: Scrim[] }) {
           )}
         </div>
       ) : null}
+
+      <LobbyEditor
+        open={Boolean(editor)}
+        kind={editor?.kind ?? "create"}
+        draft={editor?.draft ?? emptyDraft()}
+        busy={busy === "editor"}
+        error={editorError}
+        onChange={(patch) =>
+          setEditor((current) =>
+            current ? { ...current, draft: { ...current.draft, ...patch } } : current,
+          )
+        }
+        onClose={() => {
+          setEditor(null);
+          setEditorError(null);
+        }}
+        onSave={() => void saveLobbyEditor()}
+      />
     </div>
   );
 }
