@@ -1,13 +1,10 @@
-import { getLeague, getPlatformStats, getScrims } from "@/lib/data";
+import { getLeague, getScrims } from "@/lib/data";
 import { HomeHero } from "@/components/home/home-hero";
 import { ScrimCard } from "@/components/scrims/scrim-card";
 import {
-  ClosingCta,
-  HowItWorks,
   LeaderboardPreview,
   LiveStrip,
   ScheduleSection,
-  Ticker,
   WeeklyBanner,
 } from "@/components/home/sections";
 import { SectionHeader } from "@/components/ui";
@@ -15,11 +12,7 @@ import { SectionHeader } from "@/components/ui";
 export const revalidate = 30;
 
 export default async function HomePage() {
-  const [scrims, stats, league] = await Promise.all([
-    getScrims(),
-    getPlatformStats(),
-    getLeague(),
-  ]);
+  const [scrims, league] = await Promise.all([getScrims(), getLeague()]);
 
   const open = scrims
     .filter((scrim) => scrim.status === "open" || scrim.status === "full")
@@ -32,24 +25,15 @@ export default async function HomePage() {
 
   return (
     <>
-      {featured ? <HomeHero featured={featured} stats={stats} /> : null}
+      <HomeHero />
       {live ? <LiveStrip scrim={live} /> : null}
-      <Ticker
-        items={[
-          "PHANTOM leads Season 07 with 186 points",
-          "Weekend War 5K · 18 slots · ₹5,000 pool",
-          "Every lobby manually marshalled",
-          "UPI payouts settled inside 24 hours",
-          "Nightfall finals standings are live",
-        ]}
-      />
 
       {openCards.length ? (
-        <section className="mx-auto max-w-6xl px-4 pt-12 sm:px-6">
+        <section className="mx-auto max-w-6xl px-4 pt-9 sm:px-6 sm:pt-12">
           <SectionHeader
             eyebrow="Open lobbies"
             title="Pick your fight"
-            description="Three formats, one standard. Verified squads only, room credentials 15 minutes before drop."
+            description="Choose your format, lock a squad, and get ready for the drop."
             actionHref="/scrims"
             actionLabel="All scrims"
           />
@@ -62,10 +46,8 @@ export default async function HomePage() {
       ) : null}
 
       <WeeklyBanner scrim={weekly} />
-      <ScheduleSection scrims={open} />
       <LeaderboardPreview league={league} />
-      <HowItWorks />
-      <ClosingCta />
+      <ScheduleSection scrims={open} />
     </>
   );
 }

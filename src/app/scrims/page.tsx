@@ -12,8 +12,13 @@ export const metadata: Metadata = {
 
 export const revalidate = 30;
 
-export default async function ScrimsPage() {
-  const scrims = await getScrims();
+export default async function ScrimsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string | string[] }>;
+}) {
+  const [{ q }, scrims] = await Promise.all([searchParams, getScrims()]);
+  const initialQuery = Array.isArray(q) ? q[0] ?? "" : q ?? "";
   const live = scrims.filter((scrim) => scrim.status === "live").length;
   const openSlots = scrims.reduce(
     (total, scrim) =>
@@ -60,7 +65,7 @@ export default async function ScrimsPage() {
         </div>
       </section>
 
-      <ScrimBrowser scrims={scrims} />
+      <ScrimBrowser scrims={scrims} initialQuery={initialQuery} />
       <div className="mx-auto max-w-6xl px-4 pb-4 sm:px-6">
         <p className="mt-8 text-center text-[9px] font-semibold uppercase tracking-[0.12em] text-muted/50">
           Slots close 20 minutes before kickoff · Entry fees are per squad, not per player
