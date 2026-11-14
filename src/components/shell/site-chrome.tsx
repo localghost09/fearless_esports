@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, ShieldCheck, UserRound } from "lucide-react";
+import { LayoutDashboard, UserRound } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { LiveDot } from "@/components/ui";
 import { useApp } from "@/components/providers/app-provider";
@@ -99,22 +99,6 @@ export function SiteHeader() {
           )}
         </div>
       </div>
-
-      {pathname !== "/" ? (
-        <div className="hidden border-t border-white/[0.05] bg-black/15 md:block">
-          <div className="mx-auto flex h-8 max-w-6xl items-center justify-between px-6 text-[8px] font-semibold uppercase tracking-[0.18em] text-muted/60">
-            <span className="flex items-center gap-2">
-              <ShieldCheck className="size-3 text-violet/70" />
-              Verified lobbies · manual marshal on every match
-            </span>
-            <span className="flex items-center gap-3">
-              <span>BGMI · TPP SQUAD · IST</span>
-              <span className="h-2.5 w-px bg-white/10" />
-              <span className="text-mist/45">Season 07</span>
-            </span>
-          </div>
-        </div>
-      ) : null}
     </header>
   );
 }
