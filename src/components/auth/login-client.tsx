@@ -27,6 +27,22 @@ import { cn } from "@/lib/utils";
 
 type Mode = "signin" | "signup";
 
+/**
+ * Supabase returns raw provider errors ("Unsupported provider: provider is not
+ * enabled"). Translate the two that actually happen when a deployment is not
+ * wired up yet.
+ */
+function oauthError(message: string) {
+  const text = message.toLowerCase();
+  if (text.includes("provider is not enabled") || text.includes("unsupported provider")) {
+    return "Google sign-in is not enabled on this deployment yet. Use email and password below, or enable Google in Supabase → Authentication → Providers.";
+  }
+  if (text.includes("redirect_uri_mismatch") || text.includes("redirect uri")) {
+    return "Google rejected the redirect URI. Add the Supabase callback URL to your Google OAuth client.";
+  }
+  return message;
+}
+
 function GoogleIcon({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 48 48" aria-hidden="true" className={className}>
@@ -50,7 +66,7 @@ function GoogleIcon({ className }: { className?: string }) {
   );
 }
 
-export function LoginClient({ next }: { next: string }) {
+export function LoginClient({ next, googleEnabled }: { next: string; googleEnabled: boolean }) {
   const router = useRouter();
   const { toast } = useToast();
   const { mode, ready, profile, signInDemo } = useApp();
@@ -63,10 +79,16 @@ export function LoginClient({ next }: { next: string }) {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Server-resolved; flips to false if the provider turns out to be disabled.
+  const [googleAvailable, setGoogleAvailable] = useState(googleEnabled);
 
   useEffect(() => {
     if (ready && profile) router.replace(next);
   }, [ready, profile, next, router]);
+
+  useEffect(() => {
+    setGoogleAvailable(googleEnabled);
+  }, [googleEnabled]);
 
   async function signIn(event: React.FormEvent) {
     event.preventDefault();
@@ -146,7 +168,11 @@ export function LoginClient({ next }: { next: string }) {
       // click cannot start two authorization requests.
     } catch (cause) {
       setGoogleBusy(false);
-      setError(cause instanceof Error ? cause.message : "Could not start Google sign-in.");
+      const message = cause instanceof Error ? cause.message : "Could not start Google sign-in.";
+      if (/provider is not enabled|unsupported provider/i.test(message)) {
+        setGoogleAvailable(false);
+      }
+      setError(oauthError(message));
     }
   }
 
@@ -290,7 +316,7 @@ export function LoginClient({ next }: { next: string }) {
             </div>
           ) : null}
 
-          {mode === "live" ? (
+          {mode === "live" && googleAvailable ? (
             <div className="mt-4">
               <button
                 type="button"
@@ -313,6 +339,12 @@ export function LoginClient({ next }: { next: string }) {
                 <span className="h-px flex-1 bg-white/[0.07]" />
               </div>
             </div>
+          ) : null}
+
+          {mode === "live" && !googleAvailable ? (
+            <p className="mt-4 rounded-xl border border-white/[0.07] bg-white/[0.02] px-3 py-2.5 text-[9px] leading-relaxed text-muted">
+              Google sign-in is not enabled on this deployment. Use email and password below.
+            </p>
           ) : null}
 
           <form onSubmit={(event) => void signIn(event)} className="mt-4 space-y-3.5">
